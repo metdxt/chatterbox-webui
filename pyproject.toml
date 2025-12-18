@@ -1,0 +1,12 @@
+[project]
+name = "chatter"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "~=3.11"
+dependencies = [
+    "chatterbox-tts>=0.1.6",
+    "onnx<1.17",
+    "setuptools",
+    "gradio",
+]
