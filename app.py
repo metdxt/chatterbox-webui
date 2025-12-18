@@ -1,11 +1,14 @@
-import os
-import tempfile
+import argparse
 import json
+import os
 import shutil
+import tempfile
+
 import gradio as gr
 import torch
 import torchaudio as ta
 from chatterbox.tts import ChatterboxTTS
+from chatterbox.tts_turbo import ChatterboxTurboTTS
 from perth import DummyWatermarker
 
 # Constants
@@ -13,9 +16,30 @@ PERSONAS_DIR = os.path.join(os.path.dirname(__file__), "personas")
 os.makedirs(PERSONAS_DIR, exist_ok=True)
 
 # Load the model
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--standard", action="store_true", help="Use standard ChatterboxTTS model"
+)
+args, _ = parser.parse_known_args()
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Loading model on {device}...")
-model = ChatterboxTTS.from_pretrained(device=device)
+
+if args.standard:
+    print("Using Standard model")
+    model = ChatterboxTTS.from_pretrained(device=device)
+    DEFAULT_MIN_P = 0.05
+    DEFAULT_TOP_P = 1.0
+    DEFAULT_EXAGGERATION = 0.5
+    DEFAULT_CFG_WEIGHT = 0.5
+else:
+    print("Using Turbo model")
+    model = ChatterboxTurboTTS.from_pretrained(device=device)
+    DEFAULT_MIN_P = 0.0
+    DEFAULT_TOP_P = 0.95
+    DEFAULT_EXAGGERATION = 0.0
+    DEFAULT_CFG_WEIGHT = 0.0
+
 model.watermarker = DummyWatermarker()
 print("Model loaded.")
 
@@ -90,8 +114,8 @@ def save_persona(
     # Copy audio file
     _, ext = os.path.splitext(audio_prompt)
     if not ext:
-        ext = ".wav" # Fallback
-    
+        ext = ".wav"  # Fallback
+
     saved_audio_path = os.path.join(persona_path, f"reference{ext}")
     shutil.copy2(audio_prompt, saved_audio_path)
 
@@ -102,7 +126,7 @@ def save_persona(
         "exaggeration": float(exaggeration),
         "cfg_weight": float(cfg_weight),
         "temperature": float(temperature),
-        "audio_filename": f"reference{ext}"
+        "audio_filename": f"reference{ext}",
     }
 
     with open(os.path.join(persona_path, "config.json"), "w") as f:
@@ -113,31 +137,34 @@ def save_persona(
 
 def load_persona(name):
     if not name:
-        return [gr.update()] * 7 # Return no updates
+        return [gr.update()] * 7  # Return no updates
 
     persona_path = os.path.join(PERSONAS_DIR, name)
     config_path = os.path.join(persona_path, "config.json")
-    
+
     if not os.path.exists(config_path):
         raise gr.Error(f"Config not found for persona: {name}")
 
     with open(config_path, "r") as f:
         config = json.load(f)
 
-    audio_path = os.path.join(persona_path, config.get("audio_filename", "reference.wav"))
-    
+    audio_path = os.path.join(
+        persona_path, config.get("audio_filename", "reference.wav")
+    )
+
     return (
         audio_path,
         config.get("repetition_penalty", 1.2),
-        config.get("min_p", 0.05),
-        config.get("top_p", 1.0),
-        config.get("exaggeration", 0.5),
-        config.get("cfg_weight", 0.5),
+        config.get("min_p", DEFAULT_MIN_P),
+        config.get("top_p", DEFAULT_TOP_P),
+        config.get("exaggeration", DEFAULT_EXAGGERATION),
+        config.get("cfg_weight", DEFAULT_CFG_WEIGHT),
         config.get("temperature", 0.8),
     )
 
+
 def refresh_personas():
-     return gr.Dropdown(choices=get_persona_list())
+    return gr.Dropdown(choices=get_persona_list())
 
 
 # Define the UI
@@ -147,11 +174,15 @@ with gr.Blocks(title="Chatterbox TTS") as demo:
     with gr.Row():
         with gr.Column(scale=1):
             gr.Markdown("### Persona Manager")
-            persona_dropdown = gr.Dropdown(label="Load Persona", choices=get_persona_list())
+            persona_dropdown = gr.Dropdown(
+                label="Load Persona", choices=get_persona_list()
+            )
             refresh_btn = gr.Button("Refresh List", size="sm")
-            
+
             gr.Markdown("### Save New Persona")
-            new_persona_name = gr.Textbox(label="Persona Name", placeholder="e.g. My Narrator")
+            new_persona_name = gr.Textbox(
+                label="Persona Name", placeholder="e.g. My Narrator"
+            )
             save_persona_btn = gr.Button("Save Current Settings as Persona")
             save_msg = gr.Markdown("")
 
@@ -168,23 +199,47 @@ with gr.Blocks(title="Chatterbox TTS") as demo:
             with gr.Accordion("Advanced Parameters", open=True):
                 with gr.Row():
                     repetition_penalty = gr.Slider(
-                        minimum=1.0, maximum=2.0, value=1.2, step=0.05, label="Repetition Penalty"
+                        minimum=1.0,
+                        maximum=2.0,
+                        value=1.2,
+                        step=0.05,
+                        label="Repetition Penalty",
                     )
                     min_p = gr.Slider(
-                        minimum=0.0, maximum=1.0, value=0.05, step=0.01, label="Min P"
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=DEFAULT_MIN_P,
+                        step=0.01,
+                        label="Min P",
                     )
                     top_p = gr.Slider(
-                        minimum=0.0, maximum=1.0, value=1.0, step=0.01, label="Top P"
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=DEFAULT_TOP_P,
+                        step=0.01,
+                        label="Top P",
                     )
                 with gr.Row():
                     exaggeration = gr.Slider(
-                        minimum=0.0, maximum=1.0, value=0.5, step=0.05, label="Exaggeration"
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=DEFAULT_EXAGGERATION,
+                        step=0.05,
+                        label="Exaggeration",
                     )
                     cfg_weight = gr.Slider(
-                        minimum=0.0, maximum=1.0, value=0.5, step=0.05, label="CFG Weight"
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=DEFAULT_CFG_WEIGHT,
+                        step=0.05,
+                        label="CFG Weight",
                     )
                     temperature = gr.Slider(
-                        minimum=0.1, maximum=2.0, value=0.8, step=0.05, label="Temperature"
+                        minimum=0.1,
+                        maximum=2.0,
+                        value=0.8,
+                        step=0.05,
+                        label="Temperature",
                     )
 
             submit_btn = gr.Button("Generate Audio", variant="primary", size="lg")
@@ -232,9 +287,9 @@ with gr.Blocks(title="Chatterbox TTS") as demo:
             exaggeration,
             cfg_weight,
             temperature,
-        ]
+        ],
     )
-    
+
     refresh_btn.click(fn=refresh_personas, inputs=[], outputs=[persona_dropdown])
 
 if __name__ == "__main__":
